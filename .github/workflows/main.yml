@@ -1,77 +1,42 @@
-name: Build and Test C# Project (Framework 4.7.2)
+name: Build Mod DLL # 工作流的名称
 
-
-on:
-  push:
-    branches: [ master ]  # 触发条件，当main分支有push时触发
-  pull_request:
-    branches: [ master ]  # 当向main分支发起pull request时也触发
+on: # 触发工作流的事件
+  push: # 当发生 push 事件时触发
+    branches: [ main ] # 指定是在推送到 main 分支时触发
+  pull_request: # 当发生 pull_request 事件时触发
+    branches: [ main ]
 
 jobs:
-  build:
-
-    runs-on: windows-latest  # 使用Windows环境，因为.NET Framework在Windows上运行
-
-    env:
-      MELONLOADER_REPO: https://api.github.com/repos/LavaGang/MelonLoader/releases/latest
-      MELONLOADER_ASSET_NAME: MelonLoader.x64.zip
-      OUTPUT_URL: ${{ secrets.OUTPUT_URL }}
-      OUTPUT_FILE: Output.7z
+  build: # 定义一个名为 build 的任务
+    runs-on: windows-latest # 使用 GitHub 提供的最新 Windows 虚拟机环境（因为 .NET Framework 需要 Windows）
 
     steps:
+    # 1. 获取代码
     - name: Checkout code
-      uses: actions/checkout@v2
-    
-    - name: Setup 7zip
-      run: |
-        choco install 7zip.install -y
-        
-    - name: Setup MSBuild.exe
+      uses: actions/checkout@v4 # 官方 action，用于签出你的代码
+      with:
+        submodules: recursive # 如果你使用了子模块，请取消注释这行
+
+    # 2. 安装 .NET Framework 环境（实际上主机已安装，此步骤主要设置 MSBuild 路径）
+    - name: Setup MSBuild
       uses: microsoft/setup-msbuild@v2
-      
-    - name: Install NuGet Packages
-      run: nuget restore .\Sinmai-Assist.sln
-      shell: pwsh
-      
-    - name: Initialize Libraries
-      run: |
-        mkdir cache
-        Invoke-WebRequest -Uri https://github.com/LavaGang/MelonLoader/releases/download/v0.6.4/MelonLoader.x64.zip -OutFile "$(Get-Location)\cache\MelonLoader.x64.zip"        
-        7z x "$(Get-Location)\cache\MelonLoader.x64.zip" -o"$(Get-Location)\Libs"     
-        Invoke-WebRequest -Uri ${{ secrets.LIBRARY_URL }} -OutFile "$(Get-Location)\cache\Output.7z"
-        7z x "$(Get-Location)\cache\Output.7z" -o"$(Get-Location)\Libs"
-    
-    - name: Build
-      run: |
-        if (-not $(git --version 2>$null)) {
-          $commitHash = "NOT SET"
-        } else {
-          $commitHash = git rev-parse --short HEAD
-        }
 
-        $timestamp = Get-Date -Format 'o'
+    # 3. 还原 NuGet 包（如果你使用了 NuGet 包）
+    - name: Restore NuGet Packages
+      run: msbuild /t:restore YOUR_SOLUTION_NAME.sln
+      # 将 YOUR_SOLUTION_NAME.sln 替换为你的解决方案文件的实际名称
 
-        @"
-        namespace SinmaiAssist {
-          public static partial class BuildInfo {
-            public const string CommitHash = "$commitHash";
-            public const string BuildDate = "$timestamp";
-          }
-        }
-        "@ | Out-File -FilePath ".\BuildInfo.cs" -Encoding ascii
-        
-        MSBuild.exe /p:Configuration=Release /p:TargetFramework=net472 /p:OutDir=Output
+    # 4. 构建解决方案
+    - name: Build Solution
+      run: msbuild YOUR_SOLUTION_NAME.sln /p:Configuration=Release /p:Platform="Any CPU" /p:OutputPath=build_output
+      # Configuration: 发布模式构建，优化代码
+      # Platform: 目标平台
+      # OutputPath: 输出目录，这里指定为 build_output 文件夹
 
-    - name: Package
-      run: |
-        mkdir ".\Out\Mods\"
-        mkdir ".\Out\Sinmai-Assist\"
-        cmd /c copy /y ".\Output\Sinmai-Assist.dll" ".\Out\Mods\Sinmai-Assist.dll"
-        cmd /c copy /y ".\README.md" ".\Out\README.md"
-        Compress-Archive -Path "$(Get-Location)\Out\*" -DestinationPath "$(Get-Location)\Out.zip" -Update
-                
-    - name: Upload Artifacts
+    # 5. 上传构建产物（Artifact）
+    - name: Upload Build Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: artifact
-        path: Out.zip
+        name: Simmai-Assist-Mod # 产物的名称
+        path: build_output/ # 要打包上传的路径，就是我们上一步指定的输出目录
+        # 你可以使用 path: build_output/Simmai-Assist.dll 来只上传单个文件
